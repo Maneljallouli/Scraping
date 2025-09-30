@@ -1,6 +1,4 @@
 import time
-import os
-
 import chromedriver_autoinstaller
 chromedriver_autoinstaller.install()  # Installe automatiquement le ChromeDriver compatible
 
@@ -23,9 +21,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Récupération des identifiants depuis les variables d’environnement
-LINKEDIN_EMAIL = os.getenv("LINKEDIN_EMAIL")
-LINKEDIN_PASSWORD = os.getenv("LINKEDIN_PASSWORD")
+# Identifiants LinkedIn en clair (attention à la sécurité !)
+LINKEDIN_EMAIL = "jallouli.manel.44@gmail.com"
+LINKEDIN_PASSWORD = "Manel_linkedin@@123"
 
 # Route racine pour GET et HEAD (évite le 405)
 @app.get("/")
