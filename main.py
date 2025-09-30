@@ -26,6 +26,18 @@ app.add_middleware(
 LINKEDIN_EMAIL = os.getenv("LINKEDIN_EMAIL")
 LINKEDIN_PASSWORD = os.getenv("LINKEDIN_PASSWORD")
 
+# Endpoint racine pour tester si le service est actif
+@app.get("/")
+def root():
+    return {
+        "message": "Service Scraping LinkedIn actif. Utilisez /scrape avec contactId et linkedin."
+    }
+
+# Endpoint healthcheck
+@app.get("/health")
+def health():
+    return {"status": "alive"}
+
 
 def scrape_linkedin_profile(profile_url: str) -> Dict:
     chrome_options = Options()
