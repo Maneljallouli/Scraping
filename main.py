@@ -2,16 +2,17 @@ import time
 import os
 
 import chromedriver_autoinstaller
-# Installe automatiquement le ChromeDriver compatible
-chromedriver_autoinstaller.install()
+chromedriver_autoinstaller.install()  # Installe automatiquement le ChromeDriver compatible
 
 from typing import Dict
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 app = FastAPI()
 app.add_middleware(
@@ -44,23 +45,23 @@ def scrape_linkedin_profile(profile_url: str) -> Dict:
 
     driver = webdriver.Chrome(options=chrome_options)
     driver.get("https://www.linkedin.com/login")
-    time.sleep(2)
-
-    # Saisir email
-    email_input = driver.find_element(By.ID, "username")
-    email_input.send_keys(LINKEDIN_EMAIL)
-
-    # Saisir mot de passe
-    password_input = driver.find_element(By.ID, "password")
-    password_input.send_keys(LINKEDIN_PASSWORD)
-
+    
+    # Saisir email et mot de passe
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "username"))).send_keys(LINKEDIN_EMAIL)
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "password"))).send_keys(LINKEDIN_PASSWORD)
+    
     # Cliquer sur "Se connecter"
     driver.find_element(By.XPATH, "//button[@type='submit']").click()
-    time.sleep(5)
+
+    # Vérifier que la connexion est réussie
+    try:
+        WebDriverWait(driver, 10).until(EC.url_contains("/feed"))
+    except TimeoutException:
+        driver.quit()
+        raise Exception("Connexion LinkedIn échouée. Vérifie tes identifiants ou le captcha.")
 
     # Aller sur le profil
     driver.get(profile_url)
-    time.sleep(5)
 
     def scroll_to_end(driver, max_attempts=30, wait=1):
         last_height = driver.execute_script("return document.body.scrollHeight")
@@ -76,7 +77,9 @@ def scrape_linkedin_profile(profile_url: str) -> Dict:
 
     def get_section_titles(section_title_text):
         try:
-            section = driver.find_element(By.XPATH, f"//section[.//*[contains(text(), '{section_title_text}')]]")
+            section = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, f"//section[.//*[contains(text(), '{section_title_text}')]]"))
+            )
             items = section.find_elements(By.XPATH, ".//li | .//div[@class='pvs-entity']")
             results = []
 
@@ -94,7 +97,7 @@ def scrape_linkedin_profile(profile_url: str) -> Dict:
                     continue
 
             return results if results else [f"No content found in {section_title_text}"]
-        except NoSuchElementException:
+        except TimeoutException:
             return [f"{section_title_text} section not found"]
 
     profile_data = {
@@ -107,7 +110,6 @@ def scrape_linkedin_profile(profile_url: str) -> Dict:
 
     driver.quit()
     return profile_data
-
 
 @app.get("/scrape")
 def scrape(contactId: str = Query(...), linkedin: str = Query(...)):
