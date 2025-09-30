@@ -26,22 +26,14 @@ app.add_middleware(
 LINKEDIN_EMAIL = os.getenv("LINKEDIN_EMAIL")
 LINKEDIN_PASSWORD = os.getenv("LINKEDIN_PASSWORD")
 
-# Endpoint racine pour tester si le service est actif
+# Route racine pour GET et HEAD (évite le 405)
 @app.get("/")
+@app.head("/")
 def root():
-    return {
-        "message": "Service Scraping LinkedIn actif. Utilisez /scrape avec contactId et linkedin."
-    }
-
-# Endpoint healthcheck
-@app.get("/health")
-def health():
-    return {"status": "alive"}
-
+    return {"status": "OK", "message": "Service is running"}
 
 def scrape_linkedin_profile(profile_url: str) -> Dict:
     chrome_options = Options()
-    # Mode headless compatible Docker
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
