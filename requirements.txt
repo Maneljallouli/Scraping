@@ -1,4 +1,0 @@
-chromedriver-autoinstaller
-fastapi
-uvicorn
-selenium
