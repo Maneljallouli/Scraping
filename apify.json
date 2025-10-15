@@ -1,8 +1,16 @@
 {
     "name": "linkedin-scraper",
-    "version": "0.0.1",
+    "version": "1.0.0",
+    "description": "Actor Python pour scraper LinkedIn",
     "main": "main.py",
-    "buildTag": "latest",
-    "runtime": "python3.11",
-    "env": {}
+    "builds": [
+        {
+            "src": "main.py",
+            "use": "@apify/python3"
+        }
+    ],
+    "envVars": [
+        { "name": "LINKEDIN_USERNAME", "required": true },
+        { "name": "LINKEDIN_PASSWORD", "required": true }
+    ]
 }
