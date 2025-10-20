@@ -156,9 +156,9 @@ def scrape_linkedin_profile(profile_url: str) -> Dict:
 @app.get("/scrape")
 def scrape(contactId: str = Query(...), linkedin: str = Query(...)):
     print(f"🔗 Scraping LinkedIn profile for contact ID: {contactId}")
-    result = scrape_linkedin_profile(linkedin)
+    profile_data = scrape_linkedin_profile(linkedin)
     return {
         "contact_id": contactId,
         "linkedin_profile": linkedin,
-        "scraped_data": result
+        "scraped_data": profile_data
     }
