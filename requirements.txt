@@ -2,4 +2,4 @@ fastapi
 uvicorn
 selenium
 chromedriver-autoinstaller
-requests
+apify
