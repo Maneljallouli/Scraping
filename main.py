@@ -1,158 +1,122 @@
 import time
 import chromedriver_autoinstaller
-chromedriver_autoinstaller.install()  # installe le chromedriver compatible
+chromedriver_autoinstaller.install()  # Installe automatiquement le ChromeDriver compatible
 
 from typing import Dict
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from selenium import webdriver
-from selenium.common.exceptions import ElementClickInterceptedException, NoSuchElementException, TimeoutException, WebDriverException
+from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-
-# --------- STATIC CREDENTIALS (insérés sur demande) ----------
-LINKEDIN_USERNAME = "jallouli.manel.44@gmail.com"
-LINKEDIN_PASSWORD = "Manel_linkedin@@123"
-# ----------------------------------------------------------------
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-def create_driver() -> webdriver.Chrome:
+# ---------------------- CONFIG LOGIN ----------------------
+LINKEDIN_USERNAME = "jallouli.manel.44@gmail.com"
+LINKEDIN_PASSWORD = "Manel_linkedin@@123"
+LI_AT_COOKIE = "AQEDAUilXRIB-m9SAAABmZr3SMoAAAGaJlYtjE4AbDFXE5o10lsEhYHTODo0209dUkkoRL-zq9uet4C1KEKAwP8lmxR3Dj1NBbrBQ1_SqKslfHjIdXnI5_7OrI6kJGp2IcESy_yRA7v062OZUgt5JKiB"
+
+# ---------------------- SCRAPING FUNCTION ----------------------
+def scrape_linkedin_profile(profile_url: str) -> Dict:
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless=new")  # Headless moderne
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--disable-logging")
     chrome_options.add_argument("--log-level=3")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_argument("--remote-debugging-port=9222")
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
     driver = webdriver.Chrome(options=chrome_options)
-    driver.set_page_load_timeout(60)
-    return driver
+    driver.get("https://www.linkedin.com/login")
+    time.sleep(2)
 
-def linkedin_login(driver: webdriver.Chrome, timeout: int = 20) -> bool:
-    """
-    Se connecte à LinkedIn avec les credentials statiques.
-    Retourne True si login OK, False sinon.
-    """
+    # ---------------------- Auth via username/password ----------------------
     try:
-        driver.get("https://www.linkedin.com/login")
-    except (TimeoutException, WebDriverException):
-        pass
+        username_field = driver.find_element(By.ID, "username")
+        password_field = driver.find_element(By.ID, "password")
+        username_field.send_keys(LINKEDIN_USERNAME)
+        password_field.send_keys(LINKEDIN_PASSWORD)
+        driver.find_element(By.XPATH, "//button[@type='submit']").click()
+        time.sleep(5)
 
-    wait = WebDriverWait(driver, timeout)
-    try:
-        wait.until(EC.presence_of_element_located((By.ID, "username")))
-        username_el = driver.find_element(By.ID, "username")
-        password_el = driver.find_element(By.ID, "password")
-
-        username_el.clear()
-        username_el.send_keys(LINKEDIN_USERNAME)
-        password_el.clear()
-        password_el.send_keys(LINKEDIN_PASSWORD)
-
-        submit = driver.find_element(By.XPATH, "//button[@type='submit']")
-        submit.click()
-
-        # attendre indicateur du feed (ou changement d'URL)
-        try:
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.feed-identity-module, div.feed-container, nav")))
-        except TimeoutException:
-            # essai alternatif : vérifier que l'URL n'est pas la page de login encore
-            time.sleep(2)
-            if "login" in driver.current_url.lower():
-                return False
-        return True
-
-    except TimeoutException:
-        return False
-    except Exception:
-        return False
-
-def scroll_to_end(driver, max_attempts=30, wait=1):
-    last_height = driver.execute_script("return document.body.scrollHeight")
-    for _ in range(max_attempts):
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(wait)
-        new_height = driver.execute_script("return document.body.scrollHeight")
-        if new_height == last_height:
-            break
-        last_height = new_height
-
-def get_section_titles(driver, section_title_text):
-    try:
-        wait = WebDriverWait(driver, 6)
-        wait.until(EC.presence_of_element_located((By.XPATH, f"//section[.//*[contains(text(), '{section_title_text}')]]")))
-    except TimeoutException:
-        pass
-
-    try:
-        section = driver.find_element(By.XPATH, f"//section[.//*[contains(text(), '{section_title_text}')]]")
-        items = section.find_elements(By.XPATH, ".//li | .//div[@class='pvs-entity']")
-        results = []
-        for item in items:
-            try:
-                spans = item.find_elements(By.TAG_NAME, "span")
-                if len(spans) >= 2:
-                    title = spans[0].text.strip()
-                    company = spans[1].text.strip()
-                    if title and company:
-                        results.append(f"{title} @ {company}")
-                    elif title:
-                        results.append(title)
-            except Exception:
-                continue
-        return results if results else [f"No content found in {section_title_text}"]
-    except NoSuchElementException:
-        return [f"{section_title_text} section not found"]
-    except Exception:
-        return [f"{section_title_text} section not found"]
-
-# Function to scrape a LinkedIn profile
-def scrape_linkedin_profile(profile_url: str) -> Dict:
-    driver = create_driver()
-    try:
-        logged = linkedin_login(driver, timeout=20)
-        if not logged:
-            return {
-                "error": "login_failed",
-                "message": "Unable to log in with provided credentials (MFA/captcha/blocked?)."
-            }
-
-        try:
+        if "feed" not in driver.current_url:
+            print("Connexion via username/password échouée, tentative avec cookie li_at...")
+            driver.get("https://www.linkedin.com/")
+            driver.add_cookie({
+                "name": "li_at",
+                "value": LI_AT_COOKIE,
+                "domain": ".linkedin.com"
+            })
             driver.get(profile_url)
-        except (TimeoutException, WebDriverException):
-            pass
+            time.sleep(4)
+    except Exception:
+        # Si l'auth par mot de passe échoue, on utilise le cookie
+        driver.get("https://www.linkedin.com/")
+        driver.add_cookie({
+            "name": "li_at",
+            "value": LI_AT_COOKIE,
+            "domain": ".linkedin.com"
+        })
+        driver.get(profile_url)
+        time.sleep(4)
 
-        time.sleep(3)
-        scroll_to_end(driver, max_attempts=20, wait=1)
+    # ---------------------- Scroll jusqu’en bas ----------------------
+    def scroll_to_end(driver, max_attempts=30, wait=1):
+        last_height = driver.execute_script("return document.body.scrollHeight")
+        for _ in range(max_attempts):
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(wait)
+            new_height = driver.execute_script("return document.body.scrollHeight")
+            if new_height == last_height:
+                break
+            last_height = new_height
 
-        profile_data = {
-            "about": get_section_titles(driver, "À propos"),
-            "experience": get_section_titles(driver, "Expérience"),
-            "education": get_section_titles(driver, "Formation"),
-            "certifications": get_section_titles(driver, "Licences et certifications"),
-            "skills": get_section_titles(driver, "Compétences"),
-        }
-        return profile_data
+    scroll_to_end(driver)
 
-    finally:
+    # ---------------------- Extraction des sections ----------------------
+    def get_section_titles(section_title_text):
         try:
-            driver.quit()
-        except Exception:
-            pass
+            section = driver.find_element(By.XPATH, f"//section[.//*[contains(text(), '{section_title_text}')]]")
+            items = section.find_elements(By.XPATH, ".//li | .//div[@class='pvs-entity']")
+            results = []
+            for item in items:
+                try:
+                    spans = item.find_elements(By.TAG_NAME, "span")
+                    if len(spans) >= 2:
+                        title = spans[0].text.strip()
+                        company = spans[1].text.strip()
+                        if title and company:
+                            results.append(f"{title} @ {company}")
+                        elif title:
+                            results.append(title)
+                except:
+                    continue
+            return results if results else [f"No content found in {section_title_text}"]
+        except NoSuchElementException:
+            return [f"{section_title_text} section not found"]
 
+    profile_data = {
+        "about": get_section_titles("À propos"),
+        "experience": get_section_titles("Expérience"),
+        "education": get_section_titles("Formation"),
+        "certifications": get_section_titles("Licences et certifications"),
+        "skills": get_section_titles("Compétences"),
+    }
+
+    driver.quit()
+    return profile_data
+
+# ---------------------- ENDPOINT FASTAPI ----------------------
 @app.get("/scrape")
 def scrape(contactId: str = Query(...), linkedin: str = Query(...)):
     print(f"🔗 Scraping LinkedIn profile for contact ID: {contactId}")
