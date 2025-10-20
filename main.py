@@ -1,29 +1,77 @@
 import time
 import chromedriver_autoinstaller
-chromedriver_autoinstaller.install()  # Installe automatiquement le ChromeDriver compatible
+chromedriver_autoinstaller.install()
 
 from typing import Dict
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------------------- CONFIG COOKIE ----------------------
-LI_AT_COOKIE = "AQEDAUilXRIB-m9SAAABmZr3SMoAAAGaJlYtjE4AbDFXE5o10lsEhYHTODo0209dUkkoRL-zq9uet4C1KEKAwP8lmxR3Dj1NBbrBQ1_SqKslfHjIdXnI5_7OrI6kJGp2IcESy_yRA7v062OZUgt5JKiB"
+# ---------------------- CONFIG ----------------------
+LINKEDIN_USERNAME = "jallouli.manel.44@gmail.com"
+LINKEDIN_PASSWORD = "Manel_linkedin@@123"
+LI_AT_COOKIE = None  # sera mis à jour automatiquement
 
-# ---------------------- SCRAPING FUNCTION ----------------------
+# ---------------------- LOGIN AUTOMATIQUE ----------------------
+def get_li_at(interactive=False) -> str:
+    """Récupère automatiquement le cookie li_at. 
+    Si interactive=True, le navigateur est visible pour gérer 2FA ou captcha."""
+    global LI_AT_COOKIE
+    chrome_options = Options()
+    if not interactive:
+        chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--disable-logging")
+    chrome_options.add_argument("--log-level=3")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+
+    driver = webdriver.Chrome(options=chrome_options)
+    driver.get("https://www.linkedin.com/login")
+    time.sleep(2)
+
+    try:
+        # Login avec username/password
+        driver.find_element(By.ID, "username").send_keys(LINKEDIN_USERNAME)
+        driver.find_element(By.ID, "password").send_keys(LINKEDIN_PASSWORD)
+        driver.find_element(By.XPATH, "//button[@type='submit']").click()
+        time.sleep(5)
+
+        # Vérification de succès
+        if "feed" not in driver.current_url:
+            if interactive:
+                print("⚠️ Checkpoint détecté, résolvez manuellement dans le navigateur...")
+                input("Appuyez sur Entrée après validation...")
+            else:
+                raise Exception("Checkpoint ou 2FA détecté, login headless impossible")
+        
+        # Récupérer le cookie li_at
+        li_at_cookie = driver.get_cookie("li_at")["value"]
+        LI_AT_COOKIE = li_at_cookie
+        print("✅ Cookie li_at récupéré avec succès")
+        driver.quit()
+        return li_at_cookie
+
+    except Exception as e:
+        driver.quit()
+        raise Exception(f"Impossible de récupérer li_at : {e}")
+
+# ---------------------- SCRAPING ----------------------
 def scrape_linkedin_profile(profile_url: str) -> Dict:
+    global LI_AT_COOKIE
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
@@ -32,47 +80,34 @@ def scrape_linkedin_profile(profile_url: str) -> Dict:
     chrome_options.add_argument("--disable-logging")
     chrome_options.add_argument("--log-level=3")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_argument("--remote-debugging-port=9222")
 
     driver = webdriver.Chrome(options=chrome_options)
     driver.get("https://www.linkedin.com/")
     time.sleep(2)
 
-    # ---------------------- Ajouter le cookie li_at ----------------------
+    # ---------------------- Auth via cookie ----------------------
+    if LI_AT_COOKIE is None:
+        LI_AT_COOKIE = get_li_at(interactive=False)
+
     driver.add_cookie({
         "name": "li_at",
         "value": LI_AT_COOKIE,
         "domain": ".linkedin.com"
     })
-    driver.get("https://www.linkedin.com/feed/")
-    time.sleep(4)
-
-    # ---------------------- Vérifier si cookie valide ----------------------
-    if "feed" not in driver.current_url:
-        driver.quit()
-        raise HTTPException(
-            status_code=401,
-            detail="Cookie li_at invalide ou expiré. Veuillez régénérer le cookie."
-        )
-
-    # ---------------------- Aller sur le profil cible ----------------------
     driver.get(profile_url)
     time.sleep(4)
 
-    # ---------------------- Scroll jusqu’en bas ----------------------
-    def scroll_to_end(driver, max_attempts=30, wait=1):
-        last_height = driver.execute_script("return document.body.scrollHeight")
-        for _ in range(max_attempts):
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(wait)
-            new_height = driver.execute_script("return document.body.scrollHeight")
-            if new_height == last_height:
-                break
-            last_height = new_height
+    # Scroll jusqu’en bas
+    last_height = driver.execute_script("return document.body.scrollHeight")
+    for _ in range(30):
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(1)
+        new_height = driver.execute_script("return document.body.scrollHeight")
+        if new_height == last_height:
+            break
+        last_height = new_height
 
-    scroll_to_end(driver)
-
-    # ---------------------- Extraction des sections ----------------------
+    # Extraction des sections
     def get_section_titles(section_title_text):
         try:
             section = driver.find_element(By.XPATH, f"//section[.//*[contains(text(), '{section_title_text}')]]")
@@ -109,9 +144,21 @@ def scrape_linkedin_profile(profile_url: str) -> Dict:
 @app.get("/scrape")
 def scrape(contactId: str = Query(...), linkedin: str = Query(...)):
     print(f"🔗 Scraping LinkedIn profile for contact ID: {contactId}")
-    profile_data = scrape_linkedin_profile(linkedin)
+    try:
+        profile_data = scrape_linkedin_profile(linkedin)
+    except Exception as e:
+        return {"error": str(e)}
     return {
         "contact_id": contactId,
         "linkedin_profile": linkedin,
         "scraped_data": profile_data
     }
+
+@app.post("/refresh-cookie")
+def refresh_cookie(interactive: bool = Query(False)):
+    """Renouvelle le cookie li_at automatiquement ou en mode interactif"""
+    try:
+        new_li_at = get_li_at(interactive=interactive)
+        return {"li_at": new_li_at}
+    except Exception as e:
+        return {"error": str(e)}
