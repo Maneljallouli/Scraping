@@ -1,0 +1,10 @@
+{
+  "name": "linkedin-scraper",
+  "version": "0.1",
+  "description": "Scrape LinkedIn profiles using Selenium and FastAPI",
+  "buildTag": "python:3.11",
+  "entrypoint": "main.py",
+  "env": {
+    "PORT": "8080"
+  }
+}
