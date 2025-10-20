@@ -3,7 +3,7 @@ import chromedriver_autoinstaller
 chromedriver_autoinstaller.install()  # Installe automatiquement le ChromeDriver compatible
 
 from typing import Dict
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
@@ -19,15 +19,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------------- CONFIG LOGIN ----------------------
-LINKEDIN_USERNAME = "jallouli.manel.44@gmail.com"
-LINKEDIN_PASSWORD = "Manel_linkedin@@123"
+# ---------------------- CONFIG COOKIE ----------------------
 LI_AT_COOKIE = "AQEDAUilXRIB-m9SAAABmZr3SMoAAAGaJlYtjE4AbDFXE5o10lsEhYHTODo0209dUkkoRL-zq9uet4C1KEKAwP8lmxR3Dj1NBbrBQ1_SqKslfHjIdXnI5_7OrI6kJGp2IcESy_yRA7v062OZUgt5JKiB"
 
 # ---------------------- SCRAPING FUNCTION ----------------------
 def scrape_linkedin_profile(profile_url: str) -> Dict:
     chrome_options = Options()
-    chrome_options.add_argument("--headless=new")  # Headless moderne
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
@@ -37,38 +35,29 @@ def scrape_linkedin_profile(profile_url: str) -> Dict:
     chrome_options.add_argument("--remote-debugging-port=9222")
 
     driver = webdriver.Chrome(options=chrome_options)
-    driver.get("https://www.linkedin.com/login")
+    driver.get("https://www.linkedin.com/")
     time.sleep(2)
 
-    # ---------------------- Auth via username/password ----------------------
-    try:
-        username_field = driver.find_element(By.ID, "username")
-        password_field = driver.find_element(By.ID, "password")
-        username_field.send_keys(LINKEDIN_USERNAME)
-        password_field.send_keys(LINKEDIN_PASSWORD)
-        driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        time.sleep(5)
+    # ---------------------- Ajouter le cookie li_at ----------------------
+    driver.add_cookie({
+        "name": "li_at",
+        "value": LI_AT_COOKIE,
+        "domain": ".linkedin.com"
+    })
+    driver.get("https://www.linkedin.com/feed/")
+    time.sleep(4)
 
-        if "feed" not in driver.current_url:
-            print("Connexion via username/password échouée, tentative avec cookie li_at...")
-            driver.get("https://www.linkedin.com/")
-            driver.add_cookie({
-                "name": "li_at",
-                "value": LI_AT_COOKIE,
-                "domain": ".linkedin.com"
-            })
-            driver.get(profile_url)
-            time.sleep(4)
-    except Exception:
-        # Si l'auth par mot de passe échoue, on utilise le cookie
-        driver.get("https://www.linkedin.com/")
-        driver.add_cookie({
-            "name": "li_at",
-            "value": LI_AT_COOKIE,
-            "domain": ".linkedin.com"
-        })
-        driver.get(profile_url)
-        time.sleep(4)
+    # ---------------------- Vérifier si cookie valide ----------------------
+    if "feed" not in driver.current_url:
+        driver.quit()
+        raise HTTPException(
+            status_code=401,
+            detail="Cookie li_at invalide ou expiré. Veuillez régénérer le cookie."
+        )
+
+    # ---------------------- Aller sur le profil cible ----------------------
+    driver.get(profile_url)
+    time.sleep(4)
 
     # ---------------------- Scroll jusqu’en bas ----------------------
     def scroll_to_end(driver, max_attempts=30, wait=1):
